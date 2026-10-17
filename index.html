@@ -3,29 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SecureVault v2 - Sbloccato</title>
+    <title>SecureVault - Password Manager</title>
+    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#030712">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script>
-        // 1. UCCIDE IMMEDIATAMENTE IL VECCHIO SERVICE WORKER E LA VECCHIA CACHE
-        (async function killOldCache() {
-            if ('serviceWorker' in navigator) {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (let reg of registrations) {
-                    await reg.unregister();
-                }
-            }
-            if ('caches' in window) {
-                const keys = await caches.keys();
-                for (let key of keys) {
-                    await caches.delete(key);
-                }
-            }
-            // Rimuove anche il vecchio record bloccato della v1
-            localStorage.removeItem('secure_vault_encrypted');
-        })();
-    </script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
 
@@ -38,19 +20,15 @@
     <header class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center shadow-md sticky top-0 z-30">
         <div class="flex items-center space-x-2">
             <i class="fa-solid fa-shield-halved text-emerald-400 text-2xl"></i>
-            <h1 class="text-xl font-bold tracking-wide">
-                SecureVault <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">v2 Sbloccata</span>
-            </h1>
+            <h1 class="text-xl font-bold tracking-wide">SecureVault <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">Offline</span></h1>
         </div>
-        <div class="flex items-center space-x-2">
-            <button onclick="hardResetVault()" class="text-xs bg-red-950/60 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded-lg border border-red-800/50 transition cursor-pointer">
-                <i class="fa-solid fa-rotate-right mr-1"></i> Reset Totale
+        <div id="auth-controls" class="hidden flex items-center space-x-2">
+            <button onclick="changeMasterPassword()" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+                <i class="fa-solid fa-key mr-1 text-amber-400"></i> Master Key
             </button>
-            <div id="auth-controls" class="hidden flex items-center space-x-2">
-                <button onclick="lockVault()" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 transition cursor-pointer">
-                    <i class="fa-solid fa-lock mr-1"></i> Blocca
-                </button>
-            </div>
+            <button onclick="lockVault()" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+                <i class="fa-solid fa-lock mr-1"></i> Blocca
+            </button>
         </div>
     </header>
 
@@ -62,8 +40,8 @@
             <div class="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-400 text-2xl">
                 <i class="fa-solid fa-key"></i>
             </div>
-            <h2 id="lock-title" class="text-2xl font-bold mb-2">Crea Master Password</h2>
-            <p id="lock-desc" class="text-slate-400 text-sm mb-6">Imposta una password sicura per crittografare il tuo database offline.</p>
+            <h2 id="lock-title" class="text-2xl font-bold mb-2">Sblocca Vault</h2>
+            <p id="lock-desc" class="text-slate-400 text-sm mb-6">Inserisci la tua Master Password per accedere ai dati salvati in locale.</p>
             
             <form id="master-form" onsubmit="handleMasterSubmit(event)" class="space-y-4 text-left">
                 <div>
@@ -71,9 +49,16 @@
                     <input type="password" id="master-input" required placeholder="••••••••••••" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500 transition">
                 </div>
                 <button type="submit" id="master-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-xl transition shadow-lg shadow-emerald-600/20 cursor-pointer">
-                    Entra nel Vault
+                    Accedi
                 </button>
             </form>
+
+            <div id="reset-box" class="mt-6 pt-4 border-t border-slate-800 hidden">
+                <p class="text-xs text-slate-500 mb-2">Master Key dimenticata o Vault da resettare?</p>
+                <button type="button" onclick="resetCorruptedVault()" class="text-xs text-red-400 hover:text-red-300 underline cursor-pointer">
+                    Resetta Vault e Crea Nuova Master Key
+                </button>
+            </div>
         </div>
 
         <!-- APP DASHBOARD -->
@@ -82,17 +67,17 @@
             <!-- Toolbar azioni -->
             <div class="flex flex-wrap gap-3 justify-between items-center bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
                 <div class="flex flex-wrap gap-2">
-                    <button onclick="openAddModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition flex items-center shadow-lg shadow-emerald-600/20 cursor-pointer">
+                    <button onclick="openAddModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition flex items-center shadow-lg shadow-emerald-600/20">
                         <i class="fa-solid fa-plus mr-2"></i> Nuova
                     </button>
-                    <label class="bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-sm font-semibold px-4 py-2.5 rounded-xl border border-amber-500/40 transition flex items-center cursor-pointer">
-                        <i class="fa-solid fa-file-import mr-2"></i> Importa CSV Google
-                        <input type="file" accept=".csv,text/csv" onchange="importCSV(event)" class="hidden">
+                    <label class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium px-4 py-2.5 rounded-xl border border-slate-700 transition flex items-center cursor-pointer">
+                        <i class="fa-solid fa-file-import mr-2 text-amber-400"></i> Importa CSV (Google)
+                        <input type="file" accept=".csv" onchange="importCSV(event)" class="hidden">
                     </label>
-                    <button onclick="exportCSV()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium px-4 py-2.5 rounded-xl border border-slate-700 transition flex items-center cursor-pointer">
+                    <button onclick="exportCSV()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium px-4 py-2.5 rounded-xl border border-slate-700 transition flex items-center">
                         <i class="fa-solid fa-file-export mr-2 text-indigo-400"></i> Export CSV
                     </button>
-                    <button onclick="clearAllPasswords()" class="bg-red-950/40 hover:bg-red-900/50 text-red-300 text-sm font-medium px-3 py-2.5 rounded-xl border border-red-800/40 transition flex items-center cursor-pointer">
+                    <button onclick="clearAllPasswords()" class="bg-red-950/40 hover:bg-red-900/50 text-red-300 text-sm font-medium px-3 py-2.5 rounded-xl border border-red-800/40 transition flex items-center" title="Svuota tutte le password per reimportare il CSV pulito">
                         <i class="fa-solid fa-trash-can mr-1.5"></i> Svuota Lista
                     </button>
                 </div>
@@ -105,22 +90,23 @@
             <!-- Lista Credenziali -->
             <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
                 <div class="p-4 border-b border-slate-800 font-semibold text-sm text-slate-400 flex justify-between items-center">
-                    <span>Account Salvati (Tocca una riga o l'occhio 👁️ per vedere la password)</span>
+                    <span>Account Salvati (Tocca una voce per aprire i dettagli e la password)</span>
                     <span id="counter-badge" class="text-xs bg-slate-800 px-2.5 py-1 rounded-full text-emerald-400">0 elementi</span>
                 </div>
                 <div id="passwords-list" class="divide-y divide-slate-800/60 max-h-[62vh] overflow-y-auto">
+                    <!-- Elementi iniettati via JS -->
                 </div>
             </div>
         </div>
 
     </main>
 
-    <!-- Modal Dettagli / Modifica Credenziale -->
+    <!-- Modal Aggiunta / Visualizzazione / Modifica Credenziale -->
     <div id="credential-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div class="flex justify-between items-center">
                 <h3 id="modal-title" class="text-lg font-bold">Dettagli Credenziale</h3>
-                <button onclick="closeAddModal()" class="text-slate-400 hover:text-white cursor-pointer"><i class="fa-solid fa-xmark text-lg"></i></button>
+                <button onclick="closeAddModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <form onsubmit="saveCredential(event)" class="space-y-3">
                 <input type="hidden" id="cred-edit-index" value="-1">
@@ -132,46 +118,45 @@
                     <label class="block text-xs font-semibold text-slate-400 mb-1">Username / Email</label>
                     <div class="flex gap-2">
                         <input type="text" id="cred-user" placeholder="nome@email.com" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:border-emerald-500">
-                        <button type="button" onclick="copyText(document.getElementById('cred-user').value, 'Username copiato!')" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl border border-slate-700 text-xs text-slate-200 cursor-pointer">
-                            <i class="fa-solid fa-copy"></i> Copia
+                        <button type="button" onclick="copyText(document.getElementById('cred-user').value, 'Username copiato!')" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl border border-slate-700 text-xs text-slate-200">
+                            <i class="fa-solid fa-copy"></i>
                         </button>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-400 mb-1">Password in chiaro</label>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Password</label>
                     <div class="flex gap-2">
-                        <input type="text" id="cred-pass" required class="flex-1 bg-slate-950 border border-emerald-500/60 rounded-xl px-3 py-2.5 text-sm font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">
-                        <button type="button" onclick="copyText(document.getElementById('cred-pass').value, 'Password copiata!')" class="bg-emerald-600/20 hover:bg-emerald-600/30 px-3 py-2 rounded-xl border border-emerald-500/40 text-xs text-emerald-300 font-semibold cursor-pointer">
+                        <input type="text" id="cred-pass" required class="flex-1 bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2.5 text-sm font-mono text-emerald-300 focus:outline-none focus:border-emerald-500">
+                        <button type="button" onclick="copyText(document.getElementById('cred-pass').value, 'Password copiata!')" class="bg-emerald-600/20 hover:bg-emerald-600/30 px-3 py-2 rounded-xl border border-emerald-500/40 text-xs text-emerald-300 font-semibold">
                             <i class="fa-solid fa-copy mr-1"></i> Copia
                         </button>
-                        <button type="button" onclick="generateRandomPassword()" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl border border-slate-700 text-xs text-amber-400 font-medium cursor-pointer" title="Genera password casuale">
+                        <button type="button" onclick="generateRandomPassword()" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-xl border border-slate-700 text-xs text-amber-400 font-medium" title="Genera nuova password casuale">
                             <i class="fa-solid fa-wand-magic-sparkles"></i>
                         </button>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-400 mb-1">URL del Sito</label>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">URL del Sito (opzionale)</label>
                     <input type="text" id="cred-url" placeholder="https://..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-500">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-400 mb-1">Note</label>
-                    <input type="text" id="cred-note" placeholder="Note aggiuntive..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-500">
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Note (opzionale)</label>
+                    <input type="text" id="cred-note" placeholder="PIN, domande di sicurezza, note..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-500">
                 </div>
                 <div class="pt-3 flex gap-3">
-                    <button type="button" onclick="closeAddModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl text-sm font-medium transition cursor-pointer">Chiudi</button>
-                    <button type="submit" class="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2.5 rounded-xl text-sm font-medium transition shadow-lg shadow-emerald-600/20 cursor-pointer">Salva</button>
+                    <button type="button" onclick="closeAddModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl text-sm font-medium transition">Chiudi</button>
+                    <button type="submit" class="flex-1 bg-emerald-600 hover:bg-emerald-500 py-2.5 rounded-xl text-sm font-medium transition shadow-lg shadow-emerald-600/20">Salva Modifiche</button>
                 </div>
             </form>
         </div>
     </div>
 
+    <!-- Script di Logica di Cifratura, Storage e Parser CSV Google -->
     <script>
-        // Nuova chiave storage pulita che ignora il vecchio blocco corrotto
-        const STORAGE_KEY = 'secure_vault_v2_clean';
         let vaultData = [];
         let encryptionKey = null;
         let currentSalt = null;
-        let visiblePasswords = new Set();
+        let visiblePasswords = new Set(); // Tiene traccia delle password mostrate in chiaro nella lista
 
         function showToast(msg) {
             const t = document.getElementById('toast');
@@ -188,7 +173,7 @@
 
         function getStoredVault() {
             try {
-                const raw = localStorage.getItem(STORAGE_KEY);
+                const raw = localStorage.getItem('secure_vault_encrypted');
                 return raw ? JSON.parse(raw) : null;
             } catch (e) {
                 return null;
@@ -228,13 +213,8 @@
                     vaultData = JSON.parse(decrypted);
                     initDashboard();
                 } catch (err) {
-                    if (confirm("Password errata. Vuoi resettare il Vault e crearne uno nuovo con la password appena inserita?")) {
-                        currentSalt = window.crypto.getRandomValues(new Uint8Array(16));
-                        encryptionKey = await deriveKey(password, currentSalt);
-                        vaultData = [];
-                        await saveVault();
-                        initDashboard();
-                    }
+                    alert('Master Password errata.');
+                    document.getElementById('reset-box').classList.remove('hidden');
                 }
             }
         }
@@ -255,7 +235,7 @@
                 iv: Array.from(iv),
                 ciphertext: Array.from(new Uint8Array(encrypted))
             };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
+            localStorage.setItem('secure_vault_encrypted', JSON.stringify(record));
         }
 
         async function decryptData(ciphertext, iv) {
@@ -267,25 +247,34 @@
             return new TextDecoder().decode(decrypted);
         }
 
-        function hardResetVault() {
-            if (confirm("Vuoi azzerare completamente il Vault e impostare una nuova Master Password?")) {
-                localStorage.removeItem(STORAGE_KEY);
+        function resetCorruptedVault() {
+            if (confirm("Vuoi azzerare il Vault per impostare una nuova Master Password?")) {
                 localStorage.removeItem('secure_vault_encrypted');
                 encryptionKey = null;
                 currentSalt = null;
                 vaultData = [];
-                lockVault();
+                document.getElementById('master-input').value = '';
+                checkFirstSetup();
             }
         }
 
         async function clearAllPasswords() {
-            if (confirm("Vuoi svuotare la lista delle password salvate?")) {
+            if (confirm("Vuoi svuotare tutta la lista delle password salvate? (Utile per eliminare l'importazione errata precedente e ricaricare il CSV di Google da zero)")) {
                 vaultData = [];
                 visiblePasswords.clear();
                 await saveVault();
                 renderPasswords();
                 showToast("Lista svuotata!");
             }
+        }
+
+        async function changeMasterPassword() {
+            const newPass = prompt("Inserisci la nuova Master Password:");
+            if (!newPass || newPass.trim().length < 4) return;
+            currentSalt = window.crypto.getRandomValues(new Uint8Array(16));
+            encryptionKey = await deriveKey(newPass, currentSalt);
+            await saveVault();
+            alert("Master Password aggiornata!");
         }
 
         function initDashboard() {
@@ -311,12 +300,14 @@
             const stored = getStoredVault();
             if (!stored) {
                 document.getElementById('lock-title').innerText = "Crea Master Password";
-                document.getElementById('lock-desc').innerText = "Imposta una password per crittografare il tuo nuovo Vault.";
-                document.getElementById('master-btn').innerText = "Crea e Accedi";
+                document.getElementById('lock-desc').innerText = "Imposta una password sicura per crittografare il tuo nuovo database offline.";
+                document.getElementById('master-btn').innerText = "Crea Vault";
+                document.getElementById('reset-box').classList.add('hidden');
             } else {
                 document.getElementById('lock-title').innerText = "Sblocca Vault";
-                document.getElementById('lock-desc').innerText = "Inserisci la tua Master Password per accedere.";
+                document.getElementById('lock-desc').innerText = "Inserisci la Master Password per accedere.";
                 document.getElementById('master-btn').innerText = "Accedi";
+                document.getElementById('reset-box').classList.remove('hidden');
             }
         }
 
@@ -331,8 +322,11 @@
 
         function toggleShowPass(e, realIndex) {
             e.stopPropagation();
-            if (visiblePasswords.has(realIndex)) visiblePasswords.delete(realIndex);
-            else visiblePasswords.add(realIndex);
+            if (visiblePasswords.has(realIndex)) {
+                visiblePasswords.delete(realIndex);
+            } else {
+                visiblePasswords.add(realIndex);
+            }
             filterPasswords();
         }
 
@@ -364,40 +358,41 @@
             document.getElementById('counter-badge').innerText = `${vaultData.length} elementi`;
 
             if (indexedItems.length === 0) {
-                listContainer.innerHTML = `<div class="p-8 text-center text-slate-500 text-sm">Nessuna credenziale salvata. Premi "Importa CSV Google" per caricare le tue password.</div>`;
+                listContainer.innerHTML = `<div class="p-8 text-center text-slate-500 text-sm">Nessuna credenziale trovata.</div>`;
                 return;
             }
 
             indexedItems.forEach(({ item, realIndex }) => {
                 const isShown = visiblePasswords.has(realIndex);
                 const div = document.createElement('div');
-                div.className = "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/60 transition cursor-pointer";
+                div.className = "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/50 transition cursor-pointer";
+                // Cliccando sulla riga si apre il modal completo con tutti i campi!
                 div.onclick = () => editCredential(realIndex);
 
                 div.innerHTML = `
                     <div class="space-y-1 min-w-0 flex-1">
                         <div class="flex items-center gap-2">
-                            <h4 class="font-bold text-sm text-emerald-400 truncate">${escapeHtml(item.title || 'Account')}</h4>
-                            ${item.url ? `<span class="text-[11px] text-slate-500 truncate max-w-[200px]">${escapeHtml(item.url)}</span>` : ''}
+                            <h4 class="font-bold text-sm text-slate-100 truncate">${escapeHtml(item.title || 'Senza nome')}</h4>
+                            ${item.url ? `<span class="text-[11px] text-slate-500 truncate max-w-[180px]">(${escapeHtml(item.url)})</span>` : ''}
                         </div>
-                        <p class="text-xs text-slate-200 font-mono truncate">
-                            <span class="text-slate-500">User:</span> ${escapeHtml(item.username || '—')}
+                        <p class="text-xs text-slate-300 font-mono truncate">
+                            <i class="fa-regular fa-user text-slate-500 mr-1"></i>${escapeHtml(item.username || 'Nessun username')}
                         </p>
-                        <p class="text-xs font-mono ${isShown ? 'text-amber-300 font-bold bg-slate-950 px-2 py-1 rounded inline-block border border-amber-500/30' : 'text-slate-500'}">
-                            <span class="text-slate-500 font-normal">Pass:</span> ${isShown ? escapeHtml(item.password || '—') : '••••••••••••'}
+                        <p class="text-xs font-mono ${isShown ? 'text-emerald-400 font-semibold' : 'text-slate-500'}">
+                            <i class="fa-solid fa-key mr-1"></i>${isShown ? escapeHtml(item.password) : '••••••••••••'}
                         </p>
                     </div>
                     <div class="flex items-center space-x-2 self-end sm:self-center shrink-0">
-                        <button onclick="toggleShowPass(event, ${realIndex})" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs border border-slate-700 transition cursor-pointer" title="Mostra/Nascondi Password">
-                            <i class="fa-solid ${isShown ? 'fa-eye-slash text-amber-400' : 'fa-eye'} mr-1"></i>${isShown ? 'Nascondi' : 'Mostra'}
+                        <button onclick="toggleShowPass(event, ${realIndex})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs border border-slate-700 transition" title="Mostra/Nascondi Password">
+                            <i class="fa-solid ${isShown ? 'fa-eye-slash text-amber-400' : 'fa-eye'}"></i>
                         </button>
-                        <button onclick="copyUserByIndex(event, ${realIndex})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg text-xs border border-slate-700 transition cursor-pointer" title="Copia Username">
-                            Copia User
+                        <button onclick="copyUserByIndex(event, ${realIndex})" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg text-xs border border-slate-700 transition" title="Copia Username">
+                            <i class="fa-regular fa-user mr-1"></i>Copia ID
                         </button>
-                        <button onclick="copyPassByIndex(event, ${realIndex})" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 px-3 py-1.5 rounded-lg text-xs border border-emerald-500/40 font-semibold transition cursor-pointer" title="Copia Password">
-                            Copia Pass
+                        <button onclick="copyPassByIndex(event, ${realIndex})" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 px-3 py-1.5 rounded-lg text-xs border border-emerald-500/40 font-semibold transition" title="Copia Password">
+                            <i class="fa-solid fa-copy mr-1"></i>Pass
                         </button>
-                        <button onclick="deleteCredential(event, ${realIndex})" class="text-red-400 hover:text-red-300 p-2 text-xs cursor-pointer" title="Elimina">
+                        <button onclick="deleteCredential(event, ${realIndex})" class="text-red-400 hover:text-red-300 p-2 text-xs" title="Elimina">
                             <i class="fa-solid fa-trash"></i>
                         </button>
                     </div>
@@ -425,7 +420,7 @@
         function editCredential(realIndex) {
             const item = vaultData[realIndex];
             if (!item) return;
-            document.getElementById('modal-title').innerText = 'Scheda Credenziale';
+            document.getElementById('modal-title').innerText = 'Dettagli & Modifica Credenziale';
             document.getElementById('cred-edit-index').value = String(realIndex);
             document.getElementById('cred-title').value = item.title || '';
             document.getElementById('cred-user').value = item.username || '';
@@ -457,7 +452,7 @@
             await saveVault();
             closeAddModal();
             filterPasswords();
-            showToast('Salvato!');
+            showToast('Credenziale salvata!');
         }
 
         async function deleteCredential(e, realIndex) {
@@ -479,6 +474,7 @@
         }
 
         function exportCSV() {
+            // Esporta nello stesso formato standard di Google Password Manager (name,url,username,password,note)
             let csv = "name,url,username,password,note\n";
             vaultData.forEach(item => {
                 const t = (item.title || '').replace(/"/g, '""');
@@ -496,6 +492,7 @@
             a.click();
         }
 
+        // Parser CSV RFC-4180 rigoroso (gestisce correttamente campi vuoti ,, virgole nelle password e formato Google)
         function parseCSVLine(line) {
             const result = [];
             let cur = '';
@@ -534,18 +531,20 @@
                 const text = event.target.result.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
                 const lines = text.split("\n").filter(l => l.trim().length > 0);
                 if (lines.length < 2) {
-                    alert('File CSV vuoto.');
+                    alert('Il file CSV sembra vuoto.');
                     return;
                 }
 
+                // Rileva automaticamente l'ordine delle colonne dall'intestazione (riga 0)
                 const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+                
                 let idxTitle = headers.findIndex(h => h.includes('name') || h.includes('titolo') || h.includes('title'));
                 let idxUrl = headers.findIndex(h => h.includes('url') || h.includes('sito') || h.includes('website'));
                 let idxUser = headers.findIndex(h => h.includes('user') || h.includes('login') || h.includes('email'));
                 let idxPass = headers.findIndex(h => h.includes('pass'));
                 let idxNote = headers.findIndex(h => h.includes('note'));
 
-                // Formato standard Google Chrome CSV: name,url,username,password,note
+                // Fallback se non trova nomi standard (es. Google: name,url,username,password)
                 if (idxPass === -1) {
                     idxTitle = 0; idxUrl = 1; idxUser = 2; idxPass = 3; idxNote = 4;
                 }
@@ -566,7 +565,7 @@
 
                     if (titleVal || userVal || passVal) {
                         vaultData.push({
-                            title: titleVal || 'Sito',
+                            title: titleVal || 'Account',
                             username: userVal,
                             password: passVal,
                             url: urlVal,
@@ -576,19 +575,26 @@
                     }
                 }
 
-                e.target.value = '';
+                e.target.value = ''; // Reset file input
                 if (addedCount > 0) {
                     await saveVault();
                     renderPasswords();
-                    alert(`✅ Importate ${addedCount} password! Premi "Mostra" o tocca una riga per vedere la password.`);
+                    alert(`✅ Importate con successo ${addedCount} password da Google CSV!`);
                 } else {
-                    alert('Nessun record trovato nel CSV.');
+                    alert('Nessuna password trovata nel file CSV.');
                 }
             };
             reader.readAsText(file);
         }
 
         checkFirstSetup();
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(() => {});
+            });
+        }
     </script>
 </body>
 </html>
